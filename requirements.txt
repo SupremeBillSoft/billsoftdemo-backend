@@ -1,0 +1,12 @@
+asgiref==3.12.1
+Django==6.1
+django-cors-headers==4.9.0
+django-environ==0.14.0
+djangorestframework==3.18.0
+djangorestframework-camel-case==1.4.2
+psycopg==3.3.4
+psycopg-binary==3.3.4
+python-dotenv==1.2.2
+ruff==0.16.2
+sqlparse==0.5.5
+typing_extensions==4.16.0
