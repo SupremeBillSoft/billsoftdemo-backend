@@ -28,6 +28,13 @@ INSTALLED_APPS = [
     'tenants',
     'items',
     'parties',
+    'units',
+    'tax',
+    'bank',
+    'currency',
+    'branch',
+    'hsn',
+    'purchase'
 ]
 
 MIDDLEWARE = [
