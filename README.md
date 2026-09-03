@@ -8,7 +8,11 @@ For the frontend counterpart, see the `billsoft-web` repo's own README and archi
 
 ## 1. Prerequisites
 
-### Python — use Homebrew's Python, not Xcode's bundled one
+This section is split by OS — follow the one for your machine.
+
+### Python
+
+**macOS — use Homebrew's Python, not Xcode's bundled one**
 
 macOS ships a Python via Xcode's command-line tools (often an outdated 3.9) — **do not use it.** This project targets **Python 3.12**.
 
@@ -18,7 +22,26 @@ python3.12 --version   # confirm 3.12.x
 which python3.12        # confirm the path is under /opt/homebrew, NOT /Applications/Xcode.app
 ```
 
+**Windows**
+
+Install Python 3.12 from [python.org](https://www.python.org/downloads/) (the official installer) or via `winget`:
+
+```powershell
+winget install --id Python.Python.3.12
+```
+
+**On the installer's first screen, check "Add python.exe to PATH"** — easy to miss, and everything downstream assumes `python` is on PATH.
+
+```powershell
+python --version   # confirm 3.12.x
+where python        # confirm the path points at your real install, not a stub
+```
+
+If `python --version` opens the Microsoft Store instead of printing a version, that's Windows' "app execution alias" intercepting the command — go to **Settings → Apps → Advanced app settings → App execution aliases** and turn off the `python.exe`/`python3.exe` entries, then re-open your terminal.
+
 ### PostgreSQL
+
+**macOS**
 
 ```bash
 brew install postgresql@16
@@ -36,7 +59,27 @@ Confirm it's running:
 psql postgres   # should drop you into a postgres=# prompt; \q to exit
 ```
 
+**Windows**
+
+Install PostgreSQL 16 from the [official installer](https://www.postgresql.org/download/windows/) (EDB's installer), or via `winget`:
+
+```powershell
+winget install --id PostgreSQL.PostgreSQL.16
+```
+
+The installer sets `postgres` as a Windows **service**, so it starts automatically — no manual `start` step needed. It will also prompt you to set a password for the `postgres` superuser during install; remember it, you'll need it below.
+
+Add Postgres's `bin` folder to PATH if the installer didn't already (typically `C:\Program Files\PostgreSQL\16\bin`), then confirm it's running:
+
+```powershell
+psql -U postgres   # enter the password you set; should drop you into a postgres=# prompt; \q to exit
+```
+
+If the service isn't running, check **Services** (`services.msc`) for `postgresql-x64-16` and start it there.
+
 ### A Postgres GUI (optional, but recommended)
+
+**macOS**
 
 ```bash
 brew install --cask tableplus        # free tier, clean UI
@@ -44,7 +87,17 @@ brew install --cask tableplus        # free tier, clean UI
 brew install --cask dbeaver-community
 ```
 
-Connect with: Host `127.0.0.1`, Port `5432`, Database `billsoft_dev`, **User = your macOS username** (not `postgres`, not the database name — this trips people up), Password blank.
+**Windows**
+
+```powershell
+winget install --id TablePlus.TablePlus        # free tier, clean UI
+# or, fully free with no limits:
+winget install --id dbeaver.dbeaver
+```
+
+pgAdmin also ships bundled with the Windows Postgres installer if you'd rather not install anything extra.
+
+Connect with: Host `127.0.0.1`, Port `5432`, Database `billsoft_dev`. **macOS:** User = your macOS username (not `postgres`, not the database name — this trips people up), password blank. **Windows:** User = `postgres`, password = whatever you set during install.
 
 ---
 
@@ -55,7 +108,11 @@ git clone https://github.com/SupremeBillSoft/billsoft-backend.git
 cd billsoft-backend
 ```
 
+Same command on Windows — install Git first if needed (`winget install --id Git.Git`), and run this in PowerShell or Git Bash.
+
 ## 3. Virtual environment
+
+**macOS**
 
 ```bash
 python3.12 -m venv venv
@@ -63,6 +120,23 @@ source venv/bin/activate
 ```
 
 **You must run `source venv/bin/activate` every time you open a new terminal** to work on this project — it does not persist across terminal sessions. If `python`/`manage.py` commands say "command not found," this is almost always why; check your prompt shows `(venv)` before troubleshooting anything else.
+
+**Windows**
+
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+```
+
+(Using `cmd.exe` instead of PowerShell? Run `venv\Scripts\activate.bat` instead.)
+
+**Same rule applies — activate the venv every new terminal session**, and check for `(venv)` in your prompt before troubleshooting "command not found" errors.
+
+If PowerShell blocks the activation script with a "running scripts is disabled on this system" error, that's its execution policy — run this once per terminal session, then activate again:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+```
 
 ## 4. Install dependencies
 
@@ -72,12 +146,25 @@ pip install -r requirements.txt
 
 ## 5. Create the database
 
+**macOS**
+
 ```bash
 createdb billsoft_dev
 psql -l | grep billsoft_dev   # confirm it exists
 ```
 
+**Windows**
+
+```powershell
+createdb -U postgres billsoft_dev
+psql -U postgres -l   # confirm billsoft_dev is in the list
+```
+
+(`createdb`/`psql` need Postgres's `bin` folder on PATH — see the PostgreSQL install step above if these aren't recognized.)
+
 ## 6. Environment variables
+
+**macOS**
 
 ```bash
 cat > .env << 'EOF'
@@ -86,6 +173,20 @@ SECRET_KEY=dev-only-change-in-production
 DATABASE_URL=postgres://localhost:5432/billsoft_dev
 EOF
 ```
+
+**Windows**
+
+The bash heredoc above doesn't work in PowerShell or `cmd`. Use one of these instead:
+
+```powershell
+@"
+DEBUG=True
+SECRET_KEY=dev-only-change-in-production
+DATABASE_URL=postgres://localhost:5432/billsoft_dev
+"@ | Out-File -Encoding utf8 .env
+```
+
+Or just create a `.env` file by hand in your editor with the same three lines. Either way, **double-check the file has no trailing `.txt` extension** (Windows Explorer hides known extensions by default, so `.env` can silently become `.env.txt`) — `ls`/`dir` in the terminal will show the real name.
 
 ## 7. Run migrations
 
@@ -170,6 +271,7 @@ parties/         — Party Master: models, serializers, viewsets, bulk-import
 
 ## 14. Common gotchas the team already hit — save yourself the round-trip
 
+- **Windows: `OperationalError` mentioning a socket path like `/localhost:5432/.s.PGSQL.5432`.** This means psycopg is trying to connect over a Unix socket instead of TCP — it happens when `HOST` and `PORT` get combined into one string (e.g. `DATABASE_URL=postgres://localhost:5432/...` parsed incorrectly, or a settings.py that concatenates `host:port` into a single `HOST` value) instead of being passed as separate settings. Fix: make sure `HOST` and `PORT` reach `DATABASES['default']` as two distinct values, not one combined string.
 - **`INSTALLED_APPS`/`MIDDLEWARE`/`TEMPLATES` must be the FULL Django default lists**, not partially replaced. Removing the built-in `django.contrib.*` entries or dropping `TEMPLATES`/`MIDDLEWARE` causes cryptic `admin.E403`/migration errors that don't obviously point back to the missing config.
 - **Only one `DATABASES` block per file.** If you ever see two (e.g., an old SQLite block left in from scaffolding, plus a new Postgres one), Python silently uses whichever is defined *last* — no error, just quietly wrong behavior. Delete the old one entirely.
 - **`Meta.constraints`/`indexes` must be a real list, not an accidental one-element tuple.** `(x,)` is a tuple; `(x)` is just `x` — a very easy typo that produces a confusing "not iterable" error at migration time, not at the point of the typo.
