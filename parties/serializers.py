@@ -38,7 +38,7 @@ class PartyItemSerializer(serializers.ModelSerializer):
 class PartyBankDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = PartyBankDetail
-        fields = ["id", "bank_name", "branch_name", "account_no", "account_type", "ifsc_code", "switch_code",
+        fields = ["id","bank_code", "bank_name", "branch_name", "account_no", "account_type", "ifsc_code", "switch_code",
                    "is_default_account", "status", "remarks"]
 
 
@@ -46,7 +46,7 @@ class PartyShippingAddressSerializer(serializers.ModelSerializer):
     class Meta:
         model = PartyShippingAddress
         fields = [
-            "id", "shipping_party_name", "shipping_address1", "shipping_address2", "shipping_city",
+            "id", "shipping_party_name", "shipping_address_1", "shipping_address_2", "shipping_city",
             "shipping_pincode", "shipping_state", "shipping_country", "shipping_mobile_no",
             "shipping_email", "shipping_office_phone", "shipping_gst_no", "shipping_party_contact_person",
         ]
@@ -74,7 +74,7 @@ class PartySerializer(serializers.ModelSerializer):
         model = Party
         fields = [
             "id", "party_code", "party_name",
-            "address1", "address2", "city", "pincode", "state", "country",
+            "address_1", "address_2", "city", "pincode", "state", "country",
             "mobile_no", "email", "office_phone", "website",
             "gst_no", "pan_no", "vendor_code", "party_contact_person", "party_area",
             "range", "division", "party_distance", "remarks",
@@ -97,7 +97,7 @@ class PartySerializer(serializers.ModelSerializer):
         einvoice_enabled = True  # TODO: replace with tenant.business_information.einvoice_status once Business_Informationismodeled  # noqa: E501
         gst_required = einvoice_enabled and (data.get("is_customer") or data.get("is_export_customer"))
         if gst_required:
-            missing = [f for f in ["gst_no", "address1", "city", "pincode"] if not data.get(f)]
+            missing = [f for f in ["gst_no", "address_1", "city", "pincode"] if not data.get(f)]
             if missing:
                 raise serializers.ValidationError(
                     {f: "Required when e-invoice is enabled for a customer" for f in missing}
