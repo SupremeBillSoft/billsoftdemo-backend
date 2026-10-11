@@ -2,6 +2,8 @@
 
 from rest_framework import serializers
 
+from common.validation import ensure_unique_for_tenant
+
 from .models import Item, ItemCustomField
 
 CUSTOM_FIELD_LIMITS = {"Text": 6, "Date": 2, "Float": 2}
@@ -46,7 +48,7 @@ class ItemSerializer(serializers.ModelSerializer):
     def validate_item_code(self, value):
         if not value.isalnum():
             raise serializers.ValidationError("Item Code must be alphanumeric")
-        return value
+        return ensure_unique_for_tenant(self, "item_code", value, "Item Code")
 
     def validate_custom_fields(self, value):
         # one-line: THE server-side enforcement of the 6/2/2/10 caps — the

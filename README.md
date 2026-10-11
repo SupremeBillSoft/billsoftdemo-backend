@@ -196,6 +196,22 @@ python manage.py migrate
 
 Expect ~18+ migrations to apply on a genuinely fresh database (Django's own `admin`/`auth`/`contenttypes`/`sessions` apps, plus `tenants`, `items`, `parties`). If it says "No migrations to apply" on a brand-new database, something's wrong — see the gotchas section below.
 
+### Upgrading a dev database created before the Purchase BRD / Sales release
+
+`purchase/migrations/0001_initial.py` was regenerated for the BRD-aligned purchase models (PR, PO, Purchase Invoice, Return, Debit Note). If your database already applied the **old** `purchase.0001_initial`, the new purchase migrations will fail. Purchase data from that old schema can't be carried over, so reset it once:
+
+```bash
+# Simplest: recreate the whole database (loses all local data)
+dropdb billsoft_dev && createdb billsoft_dev && python manage.py migrate
+
+# Or keep masters (parties, items, ...) and only reset purchase:
+psql billsoft_dev -c "DROP TABLE IF EXISTS purchase_order_term, purchase_order_item, purchase_order, purchase_requisition_item, purchase_requisition CASCADE;"
+psql billsoft_dev -c "DELETE FROM django_migrations WHERE app = 'purchase';"
+python manage.py migrate
+```
+
+A fresh database needs none of this.
+
 ## 8. Create an admin user
 
 ```bash
@@ -261,6 +277,9 @@ parties/         — Party Master: models, serializers, viewsets, bulk-import
 | camelCase JSON (matches frontend field naming) | ✅ Via `djangorestframework-camel-case` |
 | Bulk Excel import (Party & Item) | ✅ Endpoints exist (`POST /api/parties/bulk-import/`, `/api/items/bulk-import/`) — see the ADR doc for the ingestion design |
 | **Authentication** | ❌ None. Every endpoint is currently open, scoped only to the one hardcoded dev tenant. **Do not expose this server outside localhost as-is.** |
+| **Login-dependent placeholders** — revisit when registration + login land | ⚠️ `tenants/services.py`: `get_current_tenant()` (hardcoded tenant) and `current_user_name()` (feeds Created/Updated By on stock adjustments, movements and transfers — currently "Unknown (login pending)"). `current_user_role()` returns no role, so role-based PR/PO auto-approval (Company Settings) can't fire yet. Approval decisions take **Approved by** as typed input (`approvals/serializers.py`) and `approvals/mixins.py` `_can_approve()` lets everyone approve. All four should read the logged-in user / role once login exists. |
+| Company Settings (state, GSTIN, auto-approve PR/PO) | ✅ `GET/PATCH /api/company-settings/` — the company State decides CGST+SGST vs IGST on every purchase line |
+| Inventory (godowns, stock ledger, adjustments, transfers) | ✅ `inventory` app — stock is a ledger of `StockMovement` rows, never a counter; Purchase Invoice posts in, Purchase Return posts out, nothing may go below zero. Item opening stock (BRD 6.3.2) isn't built yet — use an Add adjustment. |
 | Keycloak | ❌ Not wired in — see `get_current_tenant()`'s TODO |
 | Row-Level Security (RLS) | ❌ Not yet enabled at the Postgres level — tenant isolation currently relies entirely on `get_current_tenant()`'s queryset filtering in application code, not a database-enforced guarantee yet |
 | Redis / Celery | ❌ Not deployed — bulk-import runs synchronously in the request for now |

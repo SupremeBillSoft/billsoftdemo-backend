@@ -20,5 +20,5 @@ def unseed(apps, schema_editor):
     HSNProductCategory.objects.filter(tenant__isnull=True, name__in=PRODUCT_CATEGORIES).delete()
 
 class Migration(migrations.Migration):
-    dependencies = [("hsn", "0001_initial")]  # confirm matches your actual generated filename  # noqa: RUF012
-    operations = [migrations.RunPython(seed, unseed)]  # noqa: RUF012
+    dependencies = [("hsn", "0001_initial")]  # confirm matches your actual generated filename
+    operations = [migrations.RunPython(seed, unseed)]

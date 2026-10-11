@@ -2,6 +2,8 @@
 
 from rest_framework import serializers
 
+from common.validation import ensure_unique_for_tenant
+
 from .models import Unit
 
 
@@ -15,4 +17,4 @@ class UnitSerializer(serializers.ModelSerializer):
     def validate_unit_code(self, value):
         if not value.isalnum():
             raise serializers.ValidationError("Unit Code must be alphanumeric")
-        return value
+        return ensure_unique_for_tenant(self, "unit_code", value, "Unit Code")

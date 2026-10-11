@@ -2,6 +2,8 @@
 
 from rest_framework import serializers
 
+from common.validation import ensure_unique_for_tenant
+
 from .models import Bank
 
 
@@ -15,4 +17,4 @@ class BankSerializer(serializers.ModelSerializer):
     def validate_bank_code(self, value):
         if not value.isalnum():
             raise serializers.ValidationError("Bank Code must be alphanumeric")
-        return value
+        return ensure_unique_for_tenant(self, "bank_code", value, "Bank Code")

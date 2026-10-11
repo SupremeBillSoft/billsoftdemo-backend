@@ -34,7 +34,12 @@ INSTALLED_APPS = [
     'currency',
     'branch',
     'hsn',
-    'purchase'
+    'docnumbering',
+    'approvals',
+    'common',
+    'purchase',
+    'inventory',
+    'sales',
 ]
 
 MIDDLEWARE = [
@@ -99,6 +104,7 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "common.validation.api_exception_handler",
     "DEFAULT_RENDERER_CLASSES": (
         "djangorestframework_camel_case.render.CamelCaseJSONRenderer",
     ),
@@ -106,3 +112,7 @@ REST_FRAMEWORK = {
         "djangorestframework_camel_case.parser.CamelCaseJSONParser",
     ),
 }
+
+# E-invoice / e-way bill provider: "sandbox" (built-in, no network) or
+# "gsp" (live integration - credentials from EINVOICE_GSP_* env vars).
+EINVOICE_PROVIDER = env("EINVOICE_PROVIDER", default="sandbox")

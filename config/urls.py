@@ -13,5 +13,10 @@ urlpatterns = [
     path("api/", include("currency.urls")),
     path("api/", include("branch.urls")),
     path("api/", include("hsn.urls")),
-    path("api/", include("purchase.urls"))
+    path("api/", include("purchase.urls")),
+    path("api/", include("docnumbering.urls")),
+    path("api/", include("tenants.urls")),
+    path("api/", include("inventory.urls")),
+    path("api/sales/", include("sales.urls")),
+    path("api/common/", include("common.gst.urls")),
 ]
