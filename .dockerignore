@@ -1,0 +1,24 @@
+# Keep the image small and free of local secrets / machine-specific files.
+.git
+.gitignore
+venv/
+env/
+.venv/
+.env
+.env.*
+__pycache__/
+*.py[cod]
+*.log
+staticfiles/
+media/
+.ruff_cache/
+.pytest_cache/
+.vscode/
+.idea/
+.DS_Store
+Dockerfile
+.dockerignore
+# local one-off debug scripts
+check_*.py
+find_and_fix_item.py
+fix_test_data.py

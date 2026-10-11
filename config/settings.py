@@ -12,9 +12,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env()
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
-SECRET_KEY = 'django-insecure-1-zfx!x3ph)0qskat^*o7)p61^+t$3wv_0hi+cnxlf75mph4@c'
-DEBUG = True
-ALLOWED_HOSTS = []
+# Read from the environment (Docker / server); the defaults keep local
+# development working with no .env changes.
+SECRET_KEY = env("SECRET_KEY", default='django-insecure-1-zfx!x3ph)0qskat^*o7)p61^+t$3wv_0hi+cnxlf75mph4@c')
+DEBUG = env.bool("DEBUG", default=True)
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+# Behind nginx: trust its X-Forwarded-Proto so Django knows the request was https.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -44,6 +49,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -91,6 +97,8 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+# collectstatic target, served by WhiteNoise (Django admin CSS/JS in Docker).
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MAILERS = {
     'default': {
@@ -98,10 +106,10 @@ MAILERS = {
     },
 }
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS", default=["http://localhost:5173", "http://127.0.0.1:5173"]
+)
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=False)
 
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "common.validation.api_exception_handler",
