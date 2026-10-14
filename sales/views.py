@@ -152,6 +152,7 @@ class EnquiryViewSet(TenantScopedMixin, viewsets.ModelViewSet):
         return Response(EnquirySerializer(self.get_object(), context=self.get_serializer_context()).data)
 
 
+
 # ---------------------------------------------------------------------------
 # Quotation
 # ---------------------------------------------------------------------------
@@ -164,7 +165,12 @@ class QuotationViewSet(TenantScopedMixin, viewsets.ModelViewSet):
         qs = (
             Quotation.objects.filter(tenant=self.tenant())
             .select_related("customer", "enquiry")
-            .prefetch_related("items__item", "items__tax", "charges")
+            .prefetch_related(
+                "items__item",
+                "items__tax",
+                "items__breakups",                # sub items of Breakup lines
+                "charges",
+            )
         )
         return self.filter_common(
             qs,
@@ -238,7 +244,6 @@ class QuotationViewSet(TenantScopedMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             created = self.create_from(SalesInvoiceSerializer, data)
         return Response(created.data, status=status.HTTP_201_CREATED)
-
 
 # ---------------------------------------------------------------------------
 # Sale Order

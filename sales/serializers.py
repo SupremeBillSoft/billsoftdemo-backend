@@ -17,8 +17,8 @@ from docnumbering.services import next_number
 from inventory.services import tracks_stock
 from parties.models import Party
 from tax.models import Tax
-from tenants.services import get_company_settings
-
+from tenants.services import get_company_settings,next_doc_number 
+#from units.models import Unit
 from .compliance import rules
 from .models import (
     AdditionalCharge,
@@ -33,6 +33,7 @@ from .models import (
     EWayBill,
     Quotation,
     QuotationItem,
+    QuotationItemBreakUp,
     SaleOrder,
     SaleOrderItem,
     SaleOrderRevision,
@@ -40,6 +41,7 @@ from .models import (
     SalesInvoiceItem,
     SalesReturn,
     SalesReturnItem,
+    Item,
 )
 from .pricing import PricingOptions, price_document
 from .services import (
@@ -52,6 +54,7 @@ from .services import (
     refresh_sale_order_status,
     sale_order_has_fulfilment,
 )
+import re
 
 ZERO = Decimal("0")
 BLOCKED_PARTY_STATUSES = {"Inactive", "Suspend/Hold"}
@@ -464,33 +467,81 @@ class EnquirySerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
-# Quotation
+# Quotation (BRD 6.4.2)
 # ---------------------------------------------------------------------------
+# quotation/serializers.py
+# Keep your existing imports for PricedLineSerializer, PricedDocumentSerializer,
+# PRICED_LINE_FIELDS, PRICED_DOC_FIELDS, PRICED_DOC_READ_ONLY, check_tenant_object.
 
 
+EST_DIRECT = "Direct"
+EST_BREAKUP = "Breakup"          # same strings as the frontend grid
+ 
+TWO_PLACES = Decimal("0.01")
+ 
+ 
+def _desc_key(text: str) -> str:
+    """'Steel  Rod' and 'steel rod' count as the same description."""
+    return " ".join((text or "").split()).casefold()
+ 
+class QuotationItemBreakUpSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuotationItemBreakUp
+        fields = ["id", "sl_no", "description", "hsn_sac", "quantity", "uom", "rate", "amount"]
+        read_only_fields = ["id", "sl_no", "amount"]      # sl_no / amount are set by the server
+ 
+    def validate_quantity(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Quantity can't be negative.")
+        return value
+ 
+    def validate_rate(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Rate can't be negative.")
+        return value
+ 
+ 
 class QuotationItemSerializer(PricedLineSerializer):
+    # Quotation lines are typed in, so there is no Item Master pick: accept null.
+    item = serializers.PrimaryKeyRelatedField(queryset=Item.objects.all(), allow_null=True, required=False)
+    breakups = QuotationItemBreakUpSerializer(many=True, required=False)
+ 
     class Meta(PricedLineSerializer.Meta):
         model = QuotationItem
-
-
+        fields = [*PRICED_LINE_FIELDS, "estimation_type", "breakups"]
+ 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        est = attrs.get("estimation_type", EST_DIRECT)
+        if est not in (EST_DIRECT, EST_BREAKUP):
+            raise serializers.ValidationError({"estimation_type": "Must be Direct or Breakup."})
+        has_breakups = bool(attrs.get("breakups"))
+        if est == EST_BREAKUP and not has_breakups:
+            raise serializers.ValidationError({"breakups": "Add at least one sub item to a Breakup line."})
+        if est == EST_DIRECT and has_breakups:
+            raise serializers.ValidationError({"breakups": "A Direct line can't have sub items."})
+        return attrs
+ 
+ 
 class QuotationSerializer(PricedDocumentSerializer):
     line_model = QuotationItem
     line_fk = "quotation"
     number_field = "quotation_number"
     doc_code = "Quotation"
     label = "Quotation"
-
+ 
     items = QuotationItemSerializer(many=True)
     quotation_number = serializers.CharField(read_only=True)
     status = serializers.CharField(read_only=True)
     is_expired = serializers.SerializerMethodField()
     enquiry_number = serializers.CharField(source="enquiry.enquiry_number", read_only=True, default=None)
-
+ 
     class Meta:
         model = Quotation
         fields = [
             "id",
             "quotation_number",
+            "quotation_year_code",
             "quotation_date",
             "valid_till",
             "enquiry",
@@ -506,15 +557,107 @@ class QuotationSerializer(PricedDocumentSerializer):
             *PRICED_DOC_FIELDS,
         ]
         read_only_fields = PRICED_DOC_READ_ONLY
-
+ 
     def get_is_expired(self, obj) -> bool:
         return obj.is_expired(datetime.date.today())
-
+ 
+    # --- validation -------------------------------------------------------
     def validate_enquiry(self, enquiry):
         check_tenant_object(enquiry, self.context["tenant"], "Enquiry")
         return enquiry
-
-
+ 
+    def validate_quotation_year_code(self, value):
+        # The frontend calculates the year code; we only guard the format.
+        if not re.fullmatch(r"\d{4}", value):
+            raise serializers.ValidationError("Year code must be 4 digits, e.g. 2526.")
+        return value
+ 
+    def validate_items(self, items):
+        items = super().validate_items(items)          # non-empty + tenant checks
+ 
+        # no repeated description among the lines, nor among one line's sub items
+        line_seen = {}
+        for i, item in enumerate(items, start=1):
+            key = _desc_key(item.get("description", ""))
+            if key in line_seen:
+                raise serializers.ValidationError(
+                    f"Line {i}: description '{item['description'].strip()}' is already used on line {line_seen[key]}."
+                )
+            line_seen[key] = i
+ 
+            sub_seen = {}
+            for j, b in enumerate(item.get("breakups", []), start=1):
+                sub_key = _desc_key(b.get("description", ""))
+                if not sub_key:
+                    raise serializers.ValidationError(f"Line {i}.{j}: sub item description is required.")
+                if sub_key in sub_seen:
+                    raise serializers.ValidationError(
+                        f"Line {i}.{j}: sub item '{b['description'].strip()}' is already used on {i}.{sub_seen[sub_key]}."
+                    )
+                sub_seen[sub_key] = j
+ 
+        for item in items:
+            breakups = item.get("breakups", [])
+            for b in breakups:
+                b["amount"] = (b["quantity"] * b["rate"]).quantize(TWO_PLACES)
+            if item.get("estimation_type") == EST_BREAKUP:
+                # same rule as the grid: a Breakup line's Rate = SUM of its sub item rates
+                item["rate"] = sum((b["rate"] for b in breakups), Decimal("0")).quantize(TWO_PLACES)
+        return items
+ 
+    # --- numbering: tenant + year code, max + 1 ---------------------------
+    def before_save(self, obj, items, created):
+        # Runs inside the base class's transaction, before obj.save(), so the
+        # advisory lock taken by next_doc_number covers the INSERT.
+        if created:
+            obj.quotation_number = next_doc_number(
+                obj.tenant, Quotation,
+                no_field="quotation_number",
+                year_field="quotation_year_code",
+                year_code=obj.quotation_year_code,
+            )
+ 
+    # --- breakup persistence ----------------------------------------------
+    @staticmethod
+    def _extract_breakups(validated_data):
+        """Pull breakups out of each line BEFORE the base class sees them.
+        Returns [(posted line id or None, [breakup dicts])] in payload order."""
+        return [(line.get("id"), line.pop("breakups", []))
+                for line in validated_data.get("items", [])]
+ 
+    @staticmethod
+    def _save_breakups(quotation, payload, existing_ids):
+        lines = {line.id: line for line in quotation.items.all()}
+        # lines created by this save, in the order they were posted
+        new_lines = iter(quotation.items.exclude(id__in=existing_ids).order_by("id"))
+        rows = []
+        for line_id, breakups in payload:
+            # same rule as the base class: an id it doesn't know is a NEW line
+            line = lines[line_id] if line_id in existing_ids else next(new_lines)
+            line.breakups.all().delete()               # sub items replaced as a set per line
+            rows += [
+                QuotationItemBreakUp(quotation_item=line, sl_no=n, **b)
+                for n, b in enumerate(breakups, start=1)
+            ]
+        QuotationItemBreakUp.objects.bulk_create(rows)
+ 
+    # --- create / update ---------------------------------------------------
+    def create(self, validated_data):
+        payload = self._extract_breakups(validated_data)
+        with transaction.atomic():
+            quotation = super().create(validated_data)
+            self._save_breakups(quotation, payload, existing_ids=set())
+        return quotation
+ 
+    def update(self, instance, validated_data):
+        validated_data.pop("quotation_year_code", None)     # fixed after creation
+        payload = self._extract_breakups(validated_data)
+        existing_ids = set(instance.items.values_list("id", flat=True))
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+            self._save_breakups(instance, payload, existing_ids)
+        return instance
+ 
 # ---------------------------------------------------------------------------
 # Sale Order
 # ---------------------------------------------------------------------------

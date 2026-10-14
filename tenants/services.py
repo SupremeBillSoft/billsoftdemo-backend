@@ -3,6 +3,9 @@
 from django.db import transaction
 
 from .models import CompanySettings, DocNumberSequence, Tenant
+from django.db import connection
+from django.db.models import IntegerField, Max
+from django.db.models.functions import Cast
 
 # one-line: TEMPORARY — every viewset calls THIS function to get the
 # current tenant, never Tenant.objects.get(...) scattered across files.
@@ -60,3 +63,22 @@ def get_next_sequence_number(tenant, doc_type: str, digits: int) -> str:
     seq.next_number += 1
     seq.save()
     return str(number).zfill(digits)
+
+
+def next_doc_number(tenant, model, *, no_field: str, year_field: str, year_code: str,
+                    scope: dict | None = None, digits: int = 0) -> str:
+    if not connection.in_atomic_block:
+        raise RuntimeError("next_doc_number must be called inside transaction.atomic()")
+    
+    scope = scope or {} 
+    lock_key = ":".join([
+    str(tenant.pk), model._meta.db_table, year_code,
+    *(f"{k}={v}" for k, v in sorted(scope.items())),
+])
+    
+    with connection.cursor() as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [lock_key])
+
+    filters = {"tenant": tenant, year_field: year_code, f"{no_field}__regex": r"^\d+$", **scope}
+    last = model.objects.filter(**filters).aggregate(m=Max(Cast(no_field, IntegerField())))["m"]
+    return str((last or 0) + 1).zfill(digits)

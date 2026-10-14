@@ -253,11 +253,12 @@ class EnquiryFollowUp(models.Model):
         ordering = ["follow_up_date", "follow_up_time", "id"]
 
 
+
+
 # ---------------------------------------------------------------------------
 # Quotation (BRD 6.4.2)
 # ---------------------------------------------------------------------------
-
-
+ 
 class Quotation(PricedDocument):
     STATUS_DRAFT = "Draft"
     STATUS_SENT = "Sent"
@@ -273,8 +274,9 @@ class Quotation(PricedDocument):
     ]
     # BRD: "not allow to modify the Quotation after its accepted".
     LOCKED_STATUSES = {STATUS_ACCEPTED, STATUS_DECLINED, STATUS_CONVERTED}
-
-    quotation_number = models.CharField(max_length=50)
+ 
+    quotation_number = models.CharField(max_length=50)          # sequence number only, e.g. "12"
+    quotation_year_code = models.CharField(max_length=4)        # financial year code from the frontend, e.g. "2526"
     quotation_date = models.DateField()
     valid_till = models.DateField(null=True, blank=True)
     enquiry = models.ForeignKey(Enquiry, on_delete=models.SET_NULL, null=True, blank=True, related_name="quotations")
@@ -285,28 +287,54 @@ class Quotation(PricedDocument):
     packages = models.CharField(max_length=100, blank=True, default="")
     follow_up_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default=STATUS_DRAFT)
-
+ 
     class Meta:
         db_table = "sales_quotation"
         ordering = ["-quotation_date", "-id"]
         constraints = [
-            models.UniqueConstraint(fields=["tenant", "quotation_number"], name="uniq_quotation_number_per_tenant")
+            models.UniqueConstraint(
+                fields=["tenant", "quotation_year_code", "quotation_number"],
+                name="uniq_quotation_number_per_tenant_year",
+            )
         ]
-
+ 
     def is_expired(self, today) -> bool:
         # Derived, not stored: a Draft/Sent quotation past Valid Till.
         return bool(
             self.valid_till and self.valid_till < today and self.status in (self.STATUS_DRAFT, self.STATUS_SENT)
         )
-
-
+ 
+ 
 class QuotationItem(PricedLine):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name="items")
-
+    # Quotation lines are typed in, not picked from Item Master, so item is optional here.
+    # Overrides the (required) item FK that PricedLine defines - keep on_delete the same as in PricedLine.
+    item = models.ForeignKey("items.Item", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    # "Direct" / "Breakup" (same strings as the frontend grid). Remove if PricedLine already has it.
+    estimation_type = models.CharField(max_length=10, default="Direct")
+ 
     class Meta(PricedLine.Meta):
         db_table = "sales_quotation_item"
+ 
+ 
+class QuotationItemBreakUp(models.Model):
+    """Sub item of a Breakup line. Field names match the grid's BreakupLine.
+    uom holds the unit CODE, like the line's own uom."""
+    id = models.BigAutoField(primary_key=True)
+    quotation_item = models.ForeignKey(QuotationItem, on_delete=models.CASCADE, related_name="breakups")
+    sl_no = models.PositiveSmallIntegerField()                  # 1, 2, 3 ... set by the server from payload order
+    description = models.CharField(max_length=500, blank=True)
+    hsn_sac = models.CharField(max_length=20, blank=True)
+    quantity = models.DecimalField(max_digits=14, decimal_places=3, default=0)
+    uom = models.CharField(max_length=20, blank=True)
+    rate = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)   # quantity * rate, server-computed
+ 
+    class Meta:
+        db_table = "sales_quotation_item_breakup"
+        ordering = ["sl_no"]
 
-
+ 
 # ---------------------------------------------------------------------------
 # Sale Order (BRD 6.4.3)
 # ---------------------------------------------------------------------------
